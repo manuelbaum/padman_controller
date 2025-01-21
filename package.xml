@@ -10,6 +10,9 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <build_depend>generate_parameter_library</build_depend>
+  <build_depend>eigen3_cmake_module</build_depend>
+
+  <exec_depend>eigen3_cmake_module</exec_depend>
 
   <depend>control_msgs</depend>
 

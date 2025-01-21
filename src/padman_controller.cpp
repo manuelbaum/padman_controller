@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <Eigen/Dense>
 
 #include "controller_interface/helpers.hpp"
 
@@ -195,7 +196,7 @@ controller_interface::InterfaceConfiguration PadmanController::state_interface_c
   state_interfaces_config.names.reserve(state_joints_.size());
   for (const auto & joint : state_joints_)
   {
-    state_interfaces_config.names.push_back(joint + "/" + params_.interface_name);
+    state_interfaces_config.names.push_back(joint + "/position");
   }
 
   return state_interfaces_config;
@@ -221,7 +222,12 @@ controller_interface::CallbackReturn PadmanController::on_deactivate(
   // instead of a loop
   for (size_t i = 0; i < command_interfaces_.size(); ++i)
   {
-    command_interfaces_[i].set_value(std::numeric_limits<double>::quiet_NaN());
+    bool is_set_successfully = command_interfaces_[i].set_value(0);
+    if (!is_set_successfully){
+        RCLCPP_WARN_THROTTLE(
+        get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        "Failed to set_value in controller");
+    }
   }
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -231,20 +237,32 @@ controller_interface::return_type PadmanController::update(
 {
   auto current_ref = input_ref_.readFromRT();
 
+  double t = time.seconds();
+  Eigen::VectorXd q(3);
+  q << t, t, t;
+  q = q / 4.0;
+  q = q.array().sin();
+  q = 0.05 * q;
+
   // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
   // instead of a loop
   for (size_t i = 0; i < command_interfaces_.size(); ++i)
   {
-    if (!std::isnan((*current_ref)->displacements[i]))
-    {
-      if (*(control_mode_.readFromRT()) == control_mode_type::SLOW)
-      {
-        (*current_ref)->displacements[i] /= 2;
-      }
-      command_interfaces_[i].set_value((*current_ref)->displacements[i]);
+    // if (!std::isnan((*current_ref)->displacements[i]))
+    // {
 
-      (*current_ref)->displacements[i] = std::numeric_limits<double>::quiet_NaN();
-    }
+      bool is_set_successfully = command_interfaces_[i].set_value(q(i));
+      if (!is_set_successfully){
+          RCLCPP_WARN_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          "Failed to set_value in controller");
+      } else {
+        RCLCPP_INFO_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          (std::string("Successfully set new torque:")+std::to_string(q(i))+std::string("\n")).c_str());
+      }
+      //(*current_ref)->displacements[i] = std::numeric_limits<double>::quiet_NaN();
+    // }
   }
 
   if (state_publisher_ && state_publisher_->trylock())

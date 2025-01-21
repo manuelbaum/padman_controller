@@ -15,6 +15,8 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   rclcpp_lifecycle
   realtime_tools
   std_srvs
+  eigen3_cmake_module
+  Eigen3
 )
 
 find_package(ament_cmake REQUIRED)
@@ -23,6 +25,7 @@ find_package(ament_cmake_gmock REQUIRED)
 find_package(controller_manager REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(ros2_control_test_assets REQUIRED)
+find_package(Eigen3 REQUIRED)
 foreach(Dependency IN ITEMS ${THIS_PACKAGE_INCLUDE_DEPENDS})
   find_package(${Dependency} REQUIRED)
 endforeach()
@@ -43,6 +46,8 @@ target_include_directories(padman_controller PUBLIC
 target_link_libraries(padman_controller padman_controller_parameters)
 ament_target_dependencies(padman_controller ${THIS_PACKAGE_INCLUDE_DEPENDS})
 target_compile_definitions(padman_controller PRIVATE "PADMAN_CONTROLLER_BUILDING_DLL")
+
+ament_target_dependencies(padman_controller Eigen3)
 
 pluginlib_export_plugin_description_file(
   controller_interface padman_controller.xml)
