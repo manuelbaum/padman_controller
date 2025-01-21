@@ -24,8 +24,11 @@
 #include <string>
 #include <vector>
 #include <Eigen/Dense>
+#include <filesystem>
 
 #include "controller_interface/helpers.hpp"
+
+#include "ament_index_cpp/get_package_share_directory.hpp"
 
 namespace
 {  // utility
@@ -155,6 +158,28 @@ controller_interface::CallbackReturn PadmanController::on_configure(
   state_publisher_->msg_.header.frame_id = params_.joints[0];
   state_publisher_->unlock();
 
+
+
+  // Setup kinematics with pinocchio
+  const auto package_share_path = ament_index_cpp::get_package_share_directory("padman_hw");
+  const auto urdf_path = std::filesystem::path(package_share_path) /"urdf"/ "padman.urdf";
+  //const auto srdf_path = std::filesystem::path(package_share_path) / "ur_robot_model" / "ur5_gripper.srdf";
+
+  // Create a set of Pinocchio models and data.
+  pinocchio::urdf::buildModel(urdf_path, pinocchio_model);
+
+  pinocchio::GeometryModel visual_model;
+  pinocchio::urdf::buildGeom(pinocchio_model, urdf_path, pinocchio::VISUAL, visual_model);
+
+  
+  pinocchio::urdf::buildGeom(pinocchio_model, urdf_path, pinocchio::COLLISION, pinocchio_collision_model);
+  pinocchio_collision_model.addAllCollisionPairs();
+  //pinocchio::srdf::removeCollisionPairs(model, collision_model, srdf_path);
+
+  pinocchio_data= pinocchio::Data(pinocchio_model);
+
+
+
   RCLCPP_INFO(get_node()->get_logger(), "configure successful");
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -235,14 +260,54 @@ controller_interface::CallbackReturn PadmanController::on_deactivate(
 controller_interface::return_type PadmanController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
-  auto current_ref = input_ref_.readFromRT();
+  Eigen::VectorXd q(pinocchio_model.nq);
+  int pos_ind=0;
+  int num_joints_=3;
+  for (std::size_t i = 0; i < 3; i++)
+    {
+      q(i) = state_interfaces_[pos_ind * num_joints_ + i].get_value();
+      //q(i)=get_state((std::string("joint")+std::to_string(i+1)+std::string("/position")));
+    }
+  // compute robot jacobian
+  
+  //q << 0.0, 0.0, 0.0;
+  std::cout << "Joint configuration: " << std::endl << q << std::endl << std::endl;
 
-  double t = time.seconds();
-  Eigen::VectorXd q(3);
-  q << t, t, t;
-  q = q / 4.0;
-  q = q.array().sin();
-  q = 0.05 * q;
+  // Get the frame ID of the end effector for later lookups.
+  const auto ee_frame_id = pinocchio_model.getFrameId("ee1");
+  const auto base_link_frame_id = pinocchio_model.getFrameId("base_link");
+
+  // Perform forward kinematics and get a transform.
+  pinocchio::framesForwardKinematics(pinocchio_model, pinocchio_data, q);
+  std::cout << "Frame transform: " << std::endl << pinocchio_data.oMf[ee_frame_id] << std::endl;
+
+  // Get a Jacobian at a specific frame.
+  Eigen::MatrixXd ee_jacobian(6, pinocchio_model.nv);
+  ee_jacobian.setZero();
+  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, ee_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, ee_jacobian);
+  std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
+
+
+  Eigen::VectorXd f(6);
+  f << 0.0, 0.0, 1.0, 0.0, 0.0, 0.0;
+
+  Eigen::VectorXd kp(3);
+  kp <<10.0, 10.0, 1.0;
+
+  Eigen::VectorXd tau = ee_jacobian.transpose()*f;
+//  use jacobian to compute force into a specific direction, e.g. up
+//  then rotate the force with sin/cos
+  std::cout<<"Pre normalization: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
+  tau = (tau*0.1).array() * kp.array();
+  std::cout<<"New desired torque: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
+  // auto current_ref = input_ref_.readFromRT();
+
+  // double t = time.seconds();
+  // Eigen::VectorXd tau(3);
+  // tau << t, t, t;
+  // tau = tau / 4.0;
+  // tau = tau.array().sin();
+  // tau = 0.05 * tau;
 
   // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
   // instead of a loop
@@ -251,15 +316,16 @@ controller_interface::return_type PadmanController::update(
     // if (!std::isnan((*current_ref)->displacements[i]))
     // {
 
-      bool is_set_successfully = command_interfaces_[i].set_value(q(i));
+      bool is_set_successfully = command_interfaces_[i].set_value(tau(i));
       if (!is_set_successfully){
           RCLCPP_WARN_THROTTLE(
           get_node()->get_logger(), *get_node()->get_clock(), 1000,
           "Failed to set_value in controller");
       } else {
-        RCLCPP_INFO_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          (std::string("Successfully set new torque:")+std::to_string(q(i))+std::string("\n")).c_str());
+        // RCLCPP_INFO_THROTTLE(
+        //   get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        //   (std::string("Successfully set new torque:")+std::to_string(q(i))+std::string("\n")).c_str());
+          
       }
       //(*current_ref)->displacements[i] = std::numeric_limits<double>::quiet_NaN();
     // }

@@ -37,6 +37,14 @@
 #include "control_msgs/msg/joint_controller_state.hpp"
 #include "control_msgs/msg/joint_jog.hpp"
 
+
+#include "pinocchio/algorithm/frames.hpp"
+#include "pinocchio/algorithm/geometry.hpp"
+#include "pinocchio/algorithm/jacobian.hpp"
+#include "pinocchio/algorithm/joint-configuration.hpp"
+#include "pinocchio/parsers/urdf.hpp"
+#include "pinocchio/parsers/srdf.hpp"
+
 namespace padman_controller
 {
 // name constants for state interfaces
@@ -110,6 +118,10 @@ private:
   // callback for topic interface
   PADMAN_CONTROLLER__VISIBILITY_LOCAL
   void reference_callback(const std::shared_ptr<ControllerReferenceMsg> msg);
+
+  pinocchio::GeometryModel pinocchio_collision_model;
+pinocchio::Model pinocchio_model;
+pinocchio::Data pinocchio_data;
 };
 
 }  // namespace padman_controller

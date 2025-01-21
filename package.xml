@@ -27,7 +27,7 @@
   <depend>rclcpp_lifecycle</depend>
 
   <depend>realtime_tools</depend>
-
+<depend>pinocchio</depend>
   <depend>std_srvs</depend>
 
   <export>

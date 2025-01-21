@@ -26,6 +26,7 @@ find_package(controller_manager REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(ros2_control_test_assets REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(pinocchio REQUIRED)
 foreach(Dependency IN ITEMS ${THIS_PACKAGE_INCLUDE_DEPENDS})
   find_package(${Dependency} REQUIRED)
 endforeach()
@@ -43,7 +44,7 @@ add_library(
 target_include_directories(padman_controller PUBLIC
   "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>"
   "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>")
-target_link_libraries(padman_controller padman_controller_parameters)
+target_link_libraries(padman_controller padman_controller_parameters pinocchio::pinocchio)
 ament_target_dependencies(padman_controller ${THIS_PACKAGE_INCLUDE_DEPENDS})
 target_compile_definitions(padman_controller PRIVATE "PADMAN_CONTROLLER_BUILDING_DLL")
 
