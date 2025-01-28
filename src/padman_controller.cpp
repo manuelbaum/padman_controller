@@ -28,6 +28,8 @@
 
 #include "controller_interface/helpers.hpp"
 #include <pinocchio/algorithm/rnea.hpp>
+// #include <pinocchio/algorithm/joint-configuration.hpp>
+// #include <pinocchio/algorithm/kinematics.hpp>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
@@ -289,11 +291,11 @@ controller_interface::return_type PadmanController::update(
   // compute robot jacobian
   
   //q << 0.0, 0.0, 0.0;
-  std::cout << "Joint configuration: " << std::endl << "q:"<<std::endl<<q << std::endl << "dq:"<<std::endl << dq << std::endl;
+  //std::cout << "Joint configuration: " << std::endl << "q:"<<std::endl<<q << std::endl << "dq:"<<std::endl << dq << std::endl;
 
   // Get the frame ID of the end effector for later lookups.
   const auto ee_frame_id = pinocchio_model.getFrameId("ee1");
-  const auto base_link_frame_id = pinocchio_model.getFrameId("base_link");
+  //const auto base_link_frame_id = pinocchio_model.getFrameId("base_link");
 
   // Perform forward kinematics and get a transform.
   pinocchio::framesForwardKinematics(pinocchio_model, pinocchio_data, q);
@@ -305,14 +307,13 @@ controller_interface::return_type PadmanController::update(
   pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, ee_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, ee_jacobian); //pinocchio::LOCAL_WORLD_ALIGNED
   std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
 
-    std::cout << "Joint names in the model:" << std::endl;
-    for (pinocchio::Model::JointIndex i = 1; i < pinocchio_model.joints.size(); ++i) {
-        std::cout << i << ": " << pinocchio_model.names[i] << std::endl;
-    }
+    // std::cout << "Joint names in the model:" << std::endl;
+    // for (pinocchio::Model::JointIndex i = 1; i < pinocchio_model.joints.size(); ++i) {
+    //     std::cout << i << ": " << pinocchio_model.names[i] << std::endl;
+    // }
 
 
-  Eigen::VectorXd f(6);
-  f << 0.0, 0.0, 1.0, 0.0, 0.0, 0.0;
+
 
   // Eigen::VectorXd kp(3);
   // kp <<10.0, 10.0, 4.0;
@@ -320,14 +321,37 @@ controller_interface::return_type PadmanController::update(
   // Eigen::VectorXd kd(3);
   // kd <<0.01, 0.01, 0.0001;
 
-  Eigen::VectorXd tau = ee_jacobian.transpose()*f;
+
+
+  std::cout<<"hello?"<<std::endl;
+  // Perform the forward kinematics over the kinematic tree
+  pinocchio::forwardKinematics(pinocchio_model,pinocchio_data,q);
+      // Update the frames' positions
+    pinocchio::updateFramePlacements(pinocchio_model, pinocchio_data);
+  // Print out the placement of each joint of the kinematic tree
+  std::cout<<"Forward kinamtics for joints: "<<pinocchio_model.njoints<<std::endl;
+  Eigen::VectorXd x = pinocchio_data.oMf[ee_frame_id].translation();
+  std::cout << std::fixed << std::setprecision(2)
+              << pinocchio_data.oMf[ee_frame_id].translation().transpose()
+              << std::endl;
+
+  Eigen::VectorXd x_d(3);
+  x_d<<0.08,0.14,-0.07;
+
+    Eigen::VectorXd f(6);
+  f << 0.0, 0.0, 1.0, 0.0, 0.0, 0.0;
+  f.head<3>() = x_d - x;
+
+
+
+  Eigen::VectorXd tau = 10.0*ee_jacobian.transpose()*f;
   //Eigen::VectorXd tau = 0.1*-q;
 //  use jacobian to compute force into a specific direction, e.g. up
 //  then rotate the force with sin/cos
-  std::cout<<"Pre normalization: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
-  std::cout<<"kp "<<kp(0)<<" "<<kp(1)<<" "<<kp(2)<<" "<<"\n"<<std::endl;
-  std::cout<<"-dq "<<-dq(0)<<" "<<-dq(1)<<" "<<-dq(2)<<" "<<"\n"<<std::endl;
-  std::cout<<"kd "<<kd(0)<<" "<<kd(1)<<" "<<kd(2)<<" "<<"\n"<<std::endl;
+  //std::cout<<"Pre normalization: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
+  //std::cout<<"kp "<<kp(0)<<" "<<kp(1)<<" "<<kp(2)<<" "<<"\n"<<std::endl;
+  //std::cout<<"-dq "<<-dq(0)<<" "<<-dq(1)<<" "<<-dq(2)<<" "<<"\n"<<std::endl;
+  //std::cout<<"kd "<<kd(0)<<" "<<kd(1)<<" "<<kd(2)<<" "<<"\n"<<std::endl;
   tau = tau.array() * kp.array();
   //tau = tau.array() + (kd.array() * -dq.array()); 
   //std::cout<<"New desired torque: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
@@ -349,8 +373,8 @@ controller_interface::return_type PadmanController::update(
   Eigen::VectorXd gravity_torques = pinocchio::rnea(pinocchio_model, pinocchio_data, q, v, a);
   std::cout << "Gravity compensation torques: " << gravity_torques.transpose() << std::endl;
 
-  tau = 2.0/3.0 * gravity_torques;
-
+  tau = tau.array() + 2.0/3.0 * gravity_torques.array();
+std::cout<<"tau COMBINED "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
   // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
   // instead of a loop
   for (size_t i = 0; i < command_interfaces_.size(); ++i)
