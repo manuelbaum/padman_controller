@@ -122,6 +122,9 @@ private:
   pinocchio::GeometryModel pinocchio_collision_model;
 pinocchio::Model pinocchio_model;
 pinocchio::Data pinocchio_data;
+
+Eigen::VectorXd kd;
+Eigen::VectorXd kp;
 };
 
 }  // namespace padman_controller

@@ -27,6 +27,7 @@
 #include <filesystem>
 
 #include "controller_interface/helpers.hpp"
+#include <pinocchio/algorithm/rnea.hpp>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
@@ -158,7 +159,16 @@ controller_interface::CallbackReturn PadmanController::on_configure(
   state_publisher_->msg_.header.frame_id = params_.joints[0];
   state_publisher_->unlock();
 
+  // read and set gain parameters
+  //params_.joint1.p
 
+  kp = Eigen::VectorXd(3);
+  //kp <<params_.gains.joint1.p, params_.gains.joint2.p, params_.gains.joint3.p;
+  kp <<1.0, 1.0, 0.1;
+
+  kd = Eigen::VectorXd(3);
+  //kd <<params_.gains.joint1.d, params_.gains.joint2.d, params_.gains.joint3.d;
+  kd <<0.0, 0.0, 0.0;
 
   // Setup kinematics with pinocchio
   const auto package_share_path = ament_index_cpp::get_package_share_directory("padman_hw");
@@ -222,8 +232,13 @@ controller_interface::InterfaceConfiguration PadmanController::state_interface_c
   for (const auto & joint : state_joints_)
   {
     state_interfaces_config.names.push_back(joint + "/position");
+    
   }
-
+  for (const auto & joint : state_joints_)
+  {
+    state_interfaces_config.names.push_back(joint + "/velocity");
+    
+  }
   return state_interfaces_config;
 }
 
@@ -260,18 +275,21 @@ controller_interface::CallbackReturn PadmanController::on_deactivate(
 controller_interface::return_type PadmanController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
-  Eigen::VectorXd q(pinocchio_model.nq);
+  Eigen::VectorXd q(pinocchio_model.nv);
+  Eigen::VectorXd dq(pinocchio_model.nv);
   int pos_ind=0;
+  int vel_ind=1;
   int num_joints_=3;
   for (std::size_t i = 0; i < 3; i++)
     {
       q(i) = state_interfaces_[pos_ind * num_joints_ + i].get_value();
+      dq(i) = state_interfaces_[vel_ind * num_joints_ + i].get_value();
       //q(i)=get_state((std::string("joint")+std::to_string(i+1)+std::string("/position")));
     }
   // compute robot jacobian
   
   //q << 0.0, 0.0, 0.0;
-  std::cout << "Joint configuration: " << std::endl << q << std::endl << std::endl;
+  std::cout << "Joint configuration: " << std::endl << "q:"<<std::endl<<q << std::endl << "dq:"<<std::endl << dq << std::endl;
 
   // Get the frame ID of the end effector for later lookups.
   const auto ee_frame_id = pinocchio_model.getFrameId("ee1");
@@ -279,35 +297,59 @@ controller_interface::return_type PadmanController::update(
 
   // Perform forward kinematics and get a transform.
   pinocchio::framesForwardKinematics(pinocchio_model, pinocchio_data, q);
-  std::cout << "Frame transform: " << std::endl << pinocchio_data.oMf[ee_frame_id] << std::endl;
+  //std::cout << "Frame transform: " << std::endl << pinocchio_data.oMf[ee_frame_id] << std::endl;
 
   // Get a Jacobian at a specific frame.
   Eigen::MatrixXd ee_jacobian(6, pinocchio_model.nv);
   ee_jacobian.setZero();
-  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, ee_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, ee_jacobian);
+  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, ee_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, ee_jacobian); //pinocchio::LOCAL_WORLD_ALIGNED
   std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
+
+    std::cout << "Joint names in the model:" << std::endl;
+    for (pinocchio::Model::JointIndex i = 1; i < pinocchio_model.joints.size(); ++i) {
+        std::cout << i << ": " << pinocchio_model.names[i] << std::endl;
+    }
 
 
   Eigen::VectorXd f(6);
   f << 0.0, 0.0, 1.0, 0.0, 0.0, 0.0;
 
-  Eigen::VectorXd kp(3);
-  kp <<10.0, 10.0, 1.0;
+  // Eigen::VectorXd kp(3);
+  // kp <<10.0, 10.0, 4.0;
+
+  // Eigen::VectorXd kd(3);
+  // kd <<0.01, 0.01, 0.0001;
 
   Eigen::VectorXd tau = ee_jacobian.transpose()*f;
+  //Eigen::VectorXd tau = 0.1*-q;
 //  use jacobian to compute force into a specific direction, e.g. up
 //  then rotate the force with sin/cos
   std::cout<<"Pre normalization: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
-  tau = (tau*0.1).array() * kp.array();
-  std::cout<<"New desired torque: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
+  std::cout<<"kp "<<kp(0)<<" "<<kp(1)<<" "<<kp(2)<<" "<<"\n"<<std::endl;
+  std::cout<<"-dq "<<-dq(0)<<" "<<-dq(1)<<" "<<-dq(2)<<" "<<"\n"<<std::endl;
+  std::cout<<"kd "<<kd(0)<<" "<<kd(1)<<" "<<kd(2)<<" "<<"\n"<<std::endl;
+  tau = tau.array() * kp.array();
+  //tau = tau.array() + (kd.array() * -dq.array()); 
+  //std::cout<<"New desired torque: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
   // auto current_ref = input_ref_.readFromRT();
-
+  std::cout<<"tau "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
   // double t = time.seconds();
   // Eigen::VectorXd tau(3);
   // tau << t, t, t;
   // tau = tau / 4.0;
   // tau = tau.array().sin();
   // tau = 0.05 * tau;
+
+
+  // gravity compensation
+  //Eigen::VectorXd q = Eigen::VectorXd::Zero(model.nq);  // Joint positions (set to zero or desired configuration)
+  Eigen::VectorXd v = Eigen::VectorXd::Zero(pinocchio_model.nv);  // Joint velocities (zero for static case)  
+  Eigen::VectorXd a = Eigen::VectorXd::Zero(pinocchio_model.nv);  // Joint accelerations (zero for static case)
+
+  Eigen::VectorXd gravity_torques = pinocchio::rnea(pinocchio_model, pinocchio_data, q, v, a);
+  std::cout << "Gravity compensation torques: " << gravity_torques.transpose() << std::endl;
+
+  tau = 2.0/3.0 * gravity_torques;
 
   // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
   // instead of a loop
@@ -322,9 +364,9 @@ controller_interface::return_type PadmanController::update(
           get_node()->get_logger(), *get_node()->get_clock(), 1000,
           "Failed to set_value in controller");
       } else {
-        // RCLCPP_INFO_THROTTLE(
-        //   get_node()->get_logger(), *get_node()->get_clock(), 1000,
-        //   (std::string("Successfully set new torque:")+std::to_string(q(i))+std::string("\n")).c_str());
+        RCLCPP_INFO_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          (std::string("Successfully set new torque:")+std::to_string(tau(0))+std::string(" ")+std::to_string(tau(1))+std::string(" ")+std::to_string(tau(2))+std::string("\n")).c_str());
           
       }
       //(*current_ref)->displacements[i] = std::numeric_limits<double>::quiet_NaN();
