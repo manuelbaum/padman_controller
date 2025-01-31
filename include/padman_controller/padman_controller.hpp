@@ -123,8 +123,10 @@ private:
 pinocchio::Model pinocchio_model;
 pinocchio::Data pinocchio_data;
 
-Eigen::VectorXd kd;
-Eigen::VectorXd kp;
+//Eigen::VectorXd kd;
+//Eigen::VectorXd kp;
+
+rclcpp::Time time_activate;
 };
 
 }  // namespace padman_controller

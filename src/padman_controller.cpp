@@ -28,6 +28,7 @@
 
 #include "controller_interface/helpers.hpp"
 #include <pinocchio/algorithm/rnea.hpp>
+#include <pinocchio/algorithm/crba.hpp>
 // #include <pinocchio/algorithm/joint-configuration.hpp>
 // #include <pinocchio/algorithm/kinematics.hpp>
 
@@ -164,13 +165,9 @@ controller_interface::CallbackReturn PadmanController::on_configure(
   // read and set gain parameters
   //params_.joint1.p
 
-  kp = Eigen::VectorXd(3);
-  //kp <<params_.gains.joint1.p, params_.gains.joint2.p, params_.gains.joint3.p;
-  kp <<1.0, 1.0, 0.1;
 
-  kd = Eigen::VectorXd(3);
-  //kd <<params_.gains.joint1.d, params_.gains.joint2.d, params_.gains.joint3.d;
-  kd <<0.0, 0.0, 0.0;
+
+  //get_node()->declare_parameter("kp", std::vector<double>{10.0, 10.0, 2.5});
 
   // Setup kinematics with pinocchio
   const auto package_share_path = ament_index_cpp::get_package_share_directory("padman_hw");
@@ -254,6 +251,8 @@ controller_interface::CallbackReturn PadmanController::on_activate(
   // Set default value in command
   reset_controller_reference_msg(*(input_ref_.readFromRT)(), params_.joints);
 
+  time_activate = get_node()->now();
+
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
@@ -277,6 +276,24 @@ controller_interface::CallbackReturn PadmanController::on_deactivate(
 controller_interface::return_type PadmanController::update(
   const rclcpp::Time & time, const rclcpp::Duration & /*period*/)
 {
+
+  if (param_listener_->is_old(params_)) {
+  params_ = param_listener_->get_params();
+}
+
+  const std::vector< double > kp_std = params_.kp;//.as_double_array();
+  Eigen::Vector3d kp(kp_std.data());
+
+  const std::vector< double > kd_std = params_.kd;//.as_double_array();
+  Eigen::Vector3d kd(kd_std.data());
+  // kp = Eigen::VectorXd(3);
+  // //kp <<params_.gains.joint1.p, params_.gains.joint2.p, params_.gains.joint3.p;
+  // kp <<20.0, 20.0, 5.0;
+
+  // kd = Eigen::VectorXd(3);
+  // //kd <<params_.gains.joint1.d, params_.gains.joint2.d, params_.gains.joint3.d;
+  // kd <<0.1, 0.1, 0.1;
+
   Eigen::VectorXd q(pinocchio_model.nv);
   Eigen::VectorXd dq(pinocchio_model.nv);
   int pos_ind=0;
@@ -302,10 +319,23 @@ controller_interface::return_type PadmanController::update(
   //std::cout << "Frame transform: " << std::endl << pinocchio_data.oMf[ee_frame_id] << std::endl;
 
   // Get a Jacobian at a specific frame.
-  Eigen::MatrixXd ee_jacobian(6, pinocchio_model.nv);
-  ee_jacobian.setZero();
-  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, ee_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, ee_jacobian); //pinocchio::LOCAL_WORLD_ALIGNED
-  std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
+  Eigen::MatrixXd J(6, pinocchio_model.nv);
+  J.setZero();
+  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, ee_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, J); //pinocchio::LOCAL_WORLD_ALIGNED
+
+
+    std::stringstream ssj;
+  ssj << "J: " << std::endl << J << std::endl << std::endl;
+  RCLCPP_INFO_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          ssj.str().c_str());
+
+ssj << "kp: " << std::endl << kp << std::endl << std::endl;
+    RCLCPP_INFO_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          ssj.str().c_str());
+  //J = J.topRows(3).eval();
+  // std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
 
     // std::cout << "Joint names in the model:" << std::endl;
     // for (pinocchio::Model::JointIndex i = 1; i < pinocchio_model.joints.size(); ++i) {
@@ -323,28 +353,103 @@ controller_interface::return_type PadmanController::update(
 
 
 
-  std::cout<<"hello?"<<std::endl;
+
   // Perform the forward kinematics over the kinematic tree
   pinocchio::forwardKinematics(pinocchio_model,pinocchio_data,q);
       // Update the frames' positions
     pinocchio::updateFramePlacements(pinocchio_model, pinocchio_data);
   // Print out the placement of each joint of the kinematic tree
-  std::cout<<"Forward kinamtics for joints: "<<pinocchio_model.njoints<<std::endl;
-  Eigen::VectorXd x = pinocchio_data.oMf[ee_frame_id].translation();
-  std::cout << std::fixed << std::setprecision(2)
-              << pinocchio_data.oMf[ee_frame_id].translation().transpose()
-              << std::endl;
+  // std::cout<<"Forward kinamtics for joints: "<<pinocchio_model.njoints<<std::endl;
+  Eigen::Vector3d x = pinocchio_data.oMf[ee_frame_id].translation();
+  // std::cout << std::fixed << std::setprecision(2)
+  //             << pinocchio_data.oMf[ee_frame_id].translation().transpose()
+  //             << std::endl;
 
-  Eigen::VectorXd x_d(3);
-  x_d<<0.08,0.14,-0.07;
+  Eigen::Vector3d x_d(3);
+  x_d<<0.08, 0.14, -0.07;
 
-    Eigen::VectorXd f(6);
-  f << 0.0, 0.0, 1.0, 0.0, 0.0, 0.0;
-  f.head<3>() = x_d - x;
+  double t = (time - time_activate).seconds();
+  double seconds_per_target = 4.0;
+  int n_targets = 2;
+  int i_target = (int) std::floor(std::fmod(t, n_targets*seconds_per_target) / seconds_per_target);
 
 
+  double ratio_elapsed = std::fmod(t, seconds_per_target) / seconds_per_target;
+  double w_0, w_1;
+  if(i_target == 0){
+    w_0 = 1.0-ratio_elapsed;
+    w_1 =     ratio_elapsed;
+  } else {
+    w_0 =     ratio_elapsed;
+    w_1 = 1.0-ratio_elapsed;
+  }
 
-  Eigen::VectorXd tau = 10.0*ee_jacobian.transpose()*f;
+  Eigen::Matrix3d X;
+  X << 0, 0, 0.2,
+       0, 0, 0.00,
+       0, 0.05, 0;
+
+  //x_d = x_d+X.row(i_target).transpose();
+  x_d = x_d+(X.row(0)*w_0 + X.row(1)*w_1).transpose();
+
+  Eigen::VectorXd ddx_d(6);
+  ddx_d << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+  ddx_d.head<3>() = x_d - x;
+
+  // Eigen::Vector3d ddx_d(3);
+  // ddx_d = 10.0*(x_d - x);
+
+  // //Eigen::VectorXd tau = ee_jacobian.transpose()*f;
+  // Eigen::Matrix3d J_inv = J.topRows(3).inverse();
+  
+  ssj << "J: " << std::endl << J << std::endl << std::endl;
+  RCLCPP_INFO_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          ssj.str().c_str());
+  // Eigen::Vector3d ddq_d = J_inv*ddx_d;
+
+  Eigen::Matrix3d M = pinocchio::crba(pinocchio_model, pinocchio_data, q);
+  M.triangularView<Eigen::StrictlyLower>() = M.transpose().triangularView<Eigen::StrictlyLower>();
+
+      ssj << "M: " << std::endl << M << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+      ssj << "M_inv: " << std::endl << M.inverse() << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+      ssj << "M_inv sandwich: " << std::endl << J*M.inverse()*J.transpose() << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+  Eigen::MatrixXd M_x = (J*M.inverse()*J.transpose()).inverse(); //operational space mass matrix
+
+      ssj << "M_x: " << std::endl << M_x << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+  Eigen::VectorXd f_d = ddx_d;//M_x*ddx_d;
+
+      ssj << "f_d: " << std::endl << f_d << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+  Eigen::Vector3d tau_task = (J.transpose()*f_d);//M*ddq_d;
+
+        ssj << "tau_task: " << std::endl << tau_task << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+  Eigen::Vector3d tau = kp.array() * tau_task.array() - kd.array() * dq.array();
+  //tau << 0.0, 0.0, 0.0;
+
   //Eigen::VectorXd tau = 0.1*-q;
 //  use jacobian to compute force into a specific direction, e.g. up
 //  then rotate the force with sin/cos
@@ -352,11 +457,11 @@ controller_interface::return_type PadmanController::update(
   //std::cout<<"kp "<<kp(0)<<" "<<kp(1)<<" "<<kp(2)<<" "<<"\n"<<std::endl;
   //std::cout<<"-dq "<<-dq(0)<<" "<<-dq(1)<<" "<<-dq(2)<<" "<<"\n"<<std::endl;
   //std::cout<<"kd "<<kd(0)<<" "<<kd(1)<<" "<<kd(2)<<" "<<"\n"<<std::endl;
-  tau = tau.array() * kp.array();
+  //tau = tau.array() * kp.array();
   //tau = tau.array() + (kd.array() * -dq.array()); 
   //std::cout<<"New desired torque: "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
   // auto current_ref = input_ref_.readFromRT();
-  std::cout<<"tau "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
+  // std::cout<<"tau "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
   // double t = time.seconds();
   // Eigen::VectorXd tau(3);
   // tau << t, t, t;
@@ -364,17 +469,28 @@ controller_interface::return_type PadmanController::update(
   // tau = tau.array().sin();
   // tau = 0.05 * tau;
 
+  
+  //tau = M*tau;
+
+  std::stringstream ssm;
+  ssm << "Mass matrix: " << std::endl << M << std::endl << std::endl;
+  RCLCPP_INFO_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          ssm.str().c_str());
+  
 
   // gravity compensation
   //Eigen::VectorXd q = Eigen::VectorXd::Zero(model.nq);  // Joint positions (set to zero or desired configuration)
-  Eigen::VectorXd v = Eigen::VectorXd::Zero(pinocchio_model.nv);  // Joint velocities (zero for static case)  
-  Eigen::VectorXd a = Eigen::VectorXd::Zero(pinocchio_model.nv);  // Joint accelerations (zero for static case)
+  Eigen::Vector3d v = dq;//Eigen::VectorXd::Zero(pinocchio_model.nv);  // Joint velocities (zero for static case)  
+  Eigen::Vector3d a = Eigen::VectorXd::Zero(pinocchio_model.nv); //ddq_d;// // Joint accelerations (zero for static case)
 
-  Eigen::VectorXd gravity_torques = pinocchio::rnea(pinocchio_model, pinocchio_data, q, v, a);
-  std::cout << "Gravity compensation torques: " << gravity_torques.transpose() << std::endl;
+  Eigen::Vector3d tau_dynamics = pinocchio::rnea(pinocchio_model, pinocchio_data, q, v, a);
+  tau = tau + tau_dynamics;
+  // std::cout << "Gravity compensation torques: " << gravity_torques.transpose() << std::endl;
 
-  tau = tau.array() + 2.0/3.0 * gravity_torques.array();
-std::cout<<"tau COMBINED "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
+  //tau = 2.0/3.0 * (tau.array() +  gravity_torques.array());
+  tau = 2.0/3.0 * tau.array();
+// std::cout<<"tau COMBINED "<<tau(0)<<" "<<tau(1)<<" "<<tau(2)<<" "<<"\n"<<std::endl;
   // TODO(anyone): depending on number of interfaces, use definitions, e.g., `CMD_MY_ITFS`,
   // instead of a loop
   for (size_t i = 0; i < command_interfaces_.size(); ++i)
