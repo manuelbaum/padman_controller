@@ -17,6 +17,7 @@ set(THIS_PACKAGE_INCLUDE_DEPENDS
   std_srvs
   eigen3_cmake_module
   Eigen3
+  tf2_ros
 )
 
 find_package(ament_cmake REQUIRED)

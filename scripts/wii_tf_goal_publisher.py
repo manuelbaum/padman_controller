@@ -14,28 +14,7 @@ import serial
 from serial import SerialException
 
 
-def quaternion_from_euler(ai, aj, ak):
-    ai /= 2.0
-    aj /= 2.0
-    ak /= 2.0
-    ci = math.cos(ai)
-    si = math.sin(ai)
-    cj = math.cos(aj)
-    sj = math.sin(aj)
-    ck = math.cos(ak)
-    sk = math.sin(ak)
-    cc = ci*ck
-    cs = ci*sk
-    sc = si*ck
-    ss = si*sk
 
-    q = np.empty((4, ))
-    q[0] = cj*sc - sj*cs
-    q[1] = cj*ss + sj*cc
-    q[2] = cj*cs - sj*sc
-    q[3] = cj*cc + sj*ss
-
-    return q
 
 
 class FramePublisher(Node):
@@ -64,17 +43,19 @@ class FramePublisher(Node):
         #     1)
         # self.subscription  # prevent unused variable warning
 
-        self.scale = np.array([0.05, 0.05, 0.05])
+        self.scale = np.array([0.1, 0.1, 0.1]) #np.array([0.05, 0.05, 0.05])
 
-        self.target_origin_l = np.array([0.08, 0.14, -0.07])
+        self.target_origin_l = np.array([0.06, 0.22, -0.03])
         self.target_frame_l = "base_link"
         
-        self.target_origin_r = np.array([0.08, 0.14, -0.07])
-        self.target_frame_r = "base_linkMirror"
+        self.target_origin_r = np.array([0.10, 0.22, -0.03])
+        self.target_frame_r = "base_link"
 
         self.t_last_update_r = self.get_clock().now()
         self.t_last_update_l = self.get_clock().now()
 
+        self.z_r = 0.0
+        self.z_l = 0.0
 
         while rclpy.ok():
             # print("---")
@@ -100,12 +81,36 @@ class FramePublisher(Node):
     def send_wii_as_transform(self, s: str):
         
         side, data = s.split(":")
-        x,y,button0,button1 = data.split(",")
-
+        x,y,button0,button1 = data.strip().split(",")
+        
         x = np.clip(float(x)/100., -1., 1.)
         y = np.clip(float(y)/100., -1., 1.)
 
-        z = 0.0
+        #print(button0, "\t", button1, "\t", button0 == "1", "\t", button1 == "1")
+
+        button0 = button0 == "1"
+        button1 = button1 == "1"
+
+        # print(button0, type(button0))
+        v_z = 0.4 * button0 - 0.4 * button1
+        t_now = self.get_clock().now()
+        if side == "r":
+            dt = t_now - self.t_last_update_r
+            # print(dt.nanoseconds / 1e9, self.z_r)
+            self.z_r = np.clip(self.z_r + dt.nanoseconds / 1e9 * v_z, -1., 1.)
+            z=self.z_r
+            self.t_last_update_r = t_now
+
+        elif side == "l":
+
+            dt = t_now - self.t_last_update_l
+            # print(dt.nanoseconds / 1e9, self.z_l)
+            self.z_l = np.clip(self.z_l + dt.nanoseconds / 1e9 * v_z, -1., 1.)
+            z=self.z_l
+            self.t_last_update_l = t_now
+        else:
+            raise Exception("Side needs to be l or r. Is: "+side)
+
 
         delta = np.array([x, y, z]) * self.scale
 

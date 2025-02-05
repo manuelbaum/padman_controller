@@ -26,6 +26,9 @@
 #include <Eigen/Dense>
 #include <filesystem>
 
+#include "tf2/exceptions.h"
+#include "geometry_msgs/msg/transform_stamped.hpp"
+
 #include "controller_interface/helpers.hpp"
 #include <pinocchio/algorithm/rnea.hpp>
 #include <pinocchio/algorithm/crba.hpp>
@@ -167,6 +170,11 @@ controller_interface::CallbackReturn PadmanController::on_configure(
 
 
 
+    tf_buffer_ =
+      std::make_unique<tf2_ros::Buffer>(get_node()->get_clock());
+    tf_listener_ =
+      std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
   //get_node()->declare_parameter("kp", std::vector<double>{10.0, 10.0, 2.5});
 
   // Setup kinematics with pinocchio
@@ -297,6 +305,32 @@ controller_interface::return_type PadmanController::update(
         kd_std[0], kd_std[1], kd_std[2];
 
 
+
+    std::string tf_target_link_l = std::string("ee_target_l");
+    std::string tf_target_link_r = std::string("ee_target_r");
+    std::string tf_base_link = std::string("base_link");
+    bool is_use_target_default=true;
+        geometry_msgs::msg::TransformStamped tf_target_l;
+        geometry_msgs::msg::TransformStamped tf_target_r;
+        // Look up for the transformation between target_frame and turtle2 frames
+        // and send velocity commands for turtle2 to reach target_frame
+        try {
+          tf_target_l = tf_buffer_->lookupTransform(
+            tf_base_link, tf_target_link_l,
+            tf2::TimePointZero);
+
+          tf_target_r = tf_buffer_->lookupTransform(
+            tf_base_link, tf_target_link_r,
+            tf2::TimePointZero);
+
+            is_use_target_default = false;
+        } catch (const tf2::TransformException & ex) {
+          RCLCPP_INFO(
+            get_node()->get_logger(), "Could not transform %s to %s: %s",
+            tf_base_link.c_str(), tf_target_link_l.c_str(), ex.what());
+        }
+
+
   // kp = Eigen::VectorXd(3);
   // //kp <<params_.gains.joint1.p, params_.gains.joint2.p, params_.gains.joint3.p;
   // kp <<20.0, 20.0, 5.0;
@@ -323,10 +357,11 @@ controller_interface::return_type PadmanController::update(
   // compute robot jacobian
   
   //q << 0.0, 0.0, 0.0;
-  std::cout << "Joint configuration: " << std::endl << "q:"<<std::endl<<q.transpose() << std::endl;// << "dq:"<<std::endl << dq << std::endl;
+  // std::cout << "Joint configuration: " << std::endl << "q:"<<std::endl<<q.transpose() << std::endl;// << "dq:"<<std::endl << dq << std::endl;
 
   // Get the frame ID of the end effector for later lookups.
-  const auto ee_frame_id = pinocchio_model.getFrameId("ee1");
+  const auto eel_frame_id = pinocchio_model.getFrameId("ee1");
+  const auto eer_frame_id = pinocchio_model.getFrameId("ee_r");
   //const auto base_link_frame_id = pinocchio_model.getFrameId("base_link");
 
   // Perform forward kinematics and get a transform.
@@ -334,9 +369,14 @@ controller_interface::return_type PadmanController::update(
   //std::cout << "Frame transform: " << std::endl << pinocchio_data.oMf[ee_frame_id] << std::endl;
 
   // Get a Jacobian at a specific frame.
-  Eigen::MatrixXd J(6, pinocchio_model.nv);
-  J.setZero();
-  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, ee_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, J); //pinocchio::LOCAL_WORLD_ALIGNED
+  Eigen::MatrixXd Jl(6, pinocchio_model.nv);
+  Jl.setZero();
+  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, eel_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, Jl); //pinocchio::LOCAL_WORLD_ALIGNED
+
+    // Get a Jacobian at a specific frame.
+  Eigen::MatrixXd Jr(6, pinocchio_model.nv);
+  Jr.setZero();
+  pinocchio::computeFrameJacobian(pinocchio_model, pinocchio_data, q, eer_frame_id, pinocchio::LOCAL_WORLD_ALIGNED, Jr); //pinocchio::LOCAL_WORLD_ALIGNED
 
 
     std::stringstream ssj;
@@ -371,16 +411,20 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   // Perform the forward kinematics over the kinematic tree
   pinocchio::forwardKinematics(pinocchio_model,pinocchio_data,q);
       // Update the frames' positions
-    pinocchio::updateFramePlacements(pinocchio_model, pinocchio_data);
+  pinocchio::updateFramePlacements(pinocchio_model, pinocchio_data);
   // Print out the placement of each joint of the kinematic tree
   // std::cout<<"Forward kinamtics for joints: "<<pinocchio_model.njoints<<std::endl;
-  Eigen::Vector3d xl = pinocchio_data.oMf[ee_frame_id].translation();
+  Eigen::Vector3d xl = pinocchio_data.oMf[eel_frame_id].translation();
+  Eigen::Vector3d xr = pinocchio_data.oMf[eer_frame_id].translation();
   // std::cout << std::fixed << std::setprecision(2)
   //             << pinocchio_data.oMf[ee_frame_id].translation().transpose()
   //             << std::endl;
 
   Eigen::Vector3d xl_d(3);
-  xl_d<<0.08, 0.14, -0.07;
+  xl_d<<0.06, 0.22, -0.03;
+
+  Eigen::Vector3d xr_d(3);
+  xr_d<<0.10, 0.22, -0.03;
 
   double t = (time - time_activate).seconds();
   double seconds_per_target = 4.0;
@@ -399,16 +443,34 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   }
 
   Eigen::Matrix3d Xl;
-  Xl << 0, 0, 0.2,
+  Xl << 0, 0.0, 0.1,
        0, 0, 0.00,
        0, 0.05, 0;
 
-  //x_d = x_d+X.row(i_target).transpose();
-  xl_d = xl_d+(Xl.row(0)*w_0 + Xl.row(1)*w_1).transpose();
+  Eigen::Matrix3d Xr;
+  Xr << 0, 0.0, 0.1,
+       0, 0, 0.00,
+       0, 0.05, 0;
 
+  // add offset to the "standard" target position
+  xl_d = xl_d+(Xl.row(0)*w_0 + Xl.row(1)*w_1).transpose();
+  xr_d = xr_d+(Xr.row(0)*w_0 + Xr.row(1)*w_1).transpose();
+
+  if(!is_use_target_default){
+    xl_d << tf_target_l.transform.translation.x, tf_target_l.transform.translation.y, tf_target_l.transform.translation.z;
+    xr_d << tf_target_r.transform.translation.x, tf_target_r.transform.translation.y, tf_target_r.transform.translation.z;
+  }
+
+  std::cout<<"target: "<<is_use_target_default<<" "<<xl_d<<std::endl;
+
+  // pretend the offset is an acceleration
   Eigen::VectorXd ddxl_d(6);
   ddxl_d << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
   ddxl_d.head<3>() = xl_d - xl;
+
+  Eigen::VectorXd ddxr_d(6);
+  ddxr_d << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+  ddxr_d.head<3>() = xr_d - xr;
 
   // Eigen::Vector3d ddx_d(3);
   // ddx_d = 10.0*(x_d - x);
@@ -416,7 +478,13 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   // //Eigen::VectorXd tau = ee_jacobian.transpose()*f;
   // Eigen::Matrix3d J_inv = J.topRows(3).inverse();
   
-  ssj << "J: " << std::endl << J << std::endl << std::endl;
+  ssj << "Jl: " << std::endl << Jl << std::endl << std::endl;
+  RCLCPP_INFO_THROTTLE(
+          get_node()->get_logger(), *get_node()->get_clock(), 1000,
+          ssj.str().c_str());
+
+
+  ssj << "Jr: " << std::endl << Jr << std::endl << std::endl;
   RCLCPP_INFO_THROTTLE(
           get_node()->get_logger(), *get_node()->get_clock(), 1000,
           ssj.str().c_str());
@@ -447,21 +515,34 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
       //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
       //         ssj.str().c_str());
 
-  Eigen::VectorXd f_d = ddxl_d;//M_x*ddx_d;
+  Eigen::VectorXd fl_d = ddxl_d;//M_x*ddx_d;
+  Eigen::VectorXd fr_d = ddxr_d;//M_x*ddx_d;
 
-      ssj << "f_d: " << std::endl << f_d << std::endl << std::endl;
+      ssj << "fl_d: " << std::endl << fl_d << std::endl << std::endl;
       RCLCPP_INFO_THROTTLE(
               get_node()->get_logger(), *get_node()->get_clock(), 1000,
               ssj.str().c_str());
 
-  Eigen::VectorXd tau_task = (J.transpose()*f_d);//M*ddq_d;
-
-        ssj << "tau_task: " << std::endl << tau_task << std::endl << std::endl;
+  ssj << "fr_d: " << std::endl << fr_d << std::endl << std::endl;
       RCLCPP_INFO_THROTTLE(
               get_node()->get_logger(), *get_node()->get_clock(), 1000,
               ssj.str().c_str());
 
-  Eigen::VectorXd tau = kp.array() * tau_task.array() - kd.array() * dq.array();
+  Eigen::VectorXd tau_task_l = (Jl.transpose()*fl_d);//M*ddq_d;
+  Eigen::VectorXd tau_task_r = (Jr.transpose()*fr_d);//M*ddq_d;
+
+        ssj << "tau_task_l: " << std::endl << tau_task_l << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+
+        ssj << "tau_task_r: " << std::endl << tau_task_r << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
+  Eigen::VectorXd tau = kp.array() * (tau_task_r.array() + tau_task_l.array()) - kd.array() * dq.array(); //
   //tau << 0.0, 0.0, 0.0;
 
             ssj << "tau: " << std::endl << tau << std::endl << std::endl;

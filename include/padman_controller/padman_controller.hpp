@@ -38,6 +38,9 @@
 #include "control_msgs/msg/joint_jog.hpp"
 
 
+#include "tf2_ros/transform_listener.h"
+#include "tf2_ros/buffer.h"
+
 #include "pinocchio/algorithm/frames.hpp"
 #include "pinocchio/algorithm/geometry.hpp"
 #include "pinocchio/algorithm/jacobian.hpp"
@@ -126,6 +129,10 @@ pinocchio::Data pinocchio_data;
 std::map<std::string, long unsigned int> map_pinocchio_jointidx_lookup;
 //Eigen::VectorXd kd;
 //Eigen::VectorXd kp;
+
+
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
 
 rclcpp::Time time_activate;
 };
