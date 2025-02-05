@@ -123,6 +123,7 @@ private:
 pinocchio::Model pinocchio_model;
 pinocchio::Data pinocchio_data;
 
+std::map<std::string, long unsigned int> map_pinocchio_jointidx_lookup;
 //Eigen::VectorXd kd;
 //Eigen::VectorXd kp;
 

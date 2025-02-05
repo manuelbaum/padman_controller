@@ -45,7 +45,7 @@ class FramePublisher(Node):
 
         print("Init")
         ser_0 = serial.Serial('/dev/ttyUSB0', 115200, timeout = 0.01)
-        ser_1 = serial.Serial('/dev/ttyUSB1', 115200, timeout = 0.01)
+        ser_1 = serial.Serial('/dev/ttyUSB2', 115200, timeout = 0.01)
 
 
         # # Declare and acquire `turtlename` parameter

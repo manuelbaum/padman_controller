@@ -281,11 +281,22 @@ controller_interface::return_type PadmanController::update(
   params_ = param_listener_->get_params();
 }
 
+    for (pinocchio::Model::JointIndex i = 1; i < pinocchio_model.joints.size(); ++i) {
+        // std::cout << i << ": " << pinocchio_model.names[i] << std::endl;
+        map_pinocchio_jointidx_lookup[pinocchio_model.names[i]]=i-1;
+    }
+
   const std::vector< double > kp_std = params_.kp;//.as_double_array();
-  Eigen::Vector3d kp(kp_std.data());
+  Eigen::VectorXd kp(6);
+  kp<<kp_std[0], kp_std[1], kp_std[2], 
+      kp_std[0], kp_std[1], kp_std[2];
 
   const std::vector< double > kd_std = params_.kd;//.as_double_array();
-  Eigen::Vector3d kd(kd_std.data());
+  Eigen::VectorXd kd(6);
+    kd<<kd_std[0], kd_std[1], kd_std[2], 
+        kd_std[0], kd_std[1], kd_std[2];
+
+
   // kp = Eigen::VectorXd(3);
   // //kp <<params_.gains.joint1.p, params_.gains.joint2.p, params_.gains.joint3.p;
   // kp <<20.0, 20.0, 5.0;
@@ -298,17 +309,21 @@ controller_interface::return_type PadmanController::update(
   Eigen::VectorXd dq(pinocchio_model.nv);
   int pos_ind=0;
   int vel_ind=1;
-  int num_joints_=3;
-  for (std::size_t i = 0; i < 3; i++)
+  int num_joints_ = pinocchio_model.nq;
+  for (std::size_t i = 0; i < num_joints_; i++)
     {
-      q(i) = state_interfaces_[pos_ind * num_joints_ + i].get_value();
-      dq(i) = state_interfaces_[vel_ind * num_joints_ + i].get_value();
+      std::string name_state_interface = state_interfaces_[vel_ind * num_joints_ + i].get_name();
+      size_t pos = name_state_interface.find('/'); // Find the position of '/'
+      std::string joint_name = (pos != std::string::npos) ? name_state_interface.substr(0, pos) : name_state_interface;
+      long unsigned int i_pinocchio = map_pinocchio_jointidx_lookup[joint_name];
+      q(i_pinocchio) = state_interfaces_[pos_ind * num_joints_ + i].get_value();
+      dq(i_pinocchio) = state_interfaces_[vel_ind * num_joints_ + i].get_value();
       //q(i)=get_state((std::string("joint")+std::to_string(i+1)+std::string("/position")));
     }
   // compute robot jacobian
   
   //q << 0.0, 0.0, 0.0;
-  //std::cout << "Joint configuration: " << std::endl << "q:"<<std::endl<<q << std::endl << "dq:"<<std::endl << dq << std::endl;
+  std::cout << "Joint configuration: " << std::endl << "q:"<<std::endl<<q.transpose() << std::endl;// << "dq:"<<std::endl << dq << std::endl;
 
   // Get the frame ID of the end effector for later lookups.
   const auto ee_frame_id = pinocchio_model.getFrameId("ee1");
@@ -325,10 +340,10 @@ controller_interface::return_type PadmanController::update(
 
 
     std::stringstream ssj;
-  ssj << "J: " << std::endl << J << std::endl << std::endl;
-  RCLCPP_INFO_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          ssj.str().c_str());
+  // ssj << "J: " << std::endl << J << std::endl << std::endl;
+  // RCLCPP_INFO_THROTTLE(
+  //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+  //         ssj.str().c_str());
 
 ssj << "kp: " << std::endl << kp << std::endl << std::endl;
     RCLCPP_INFO_THROTTLE(
@@ -337,10 +352,9 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   //J = J.topRows(3).eval();
   // std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
 
+    
     // std::cout << "Joint names in the model:" << std::endl;
-    // for (pinocchio::Model::JointIndex i = 1; i < pinocchio_model.joints.size(); ++i) {
-    //     std::cout << i << ": " << pinocchio_model.names[i] << std::endl;
-    // }
+
 
 
 
@@ -360,13 +374,13 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
     pinocchio::updateFramePlacements(pinocchio_model, pinocchio_data);
   // Print out the placement of each joint of the kinematic tree
   // std::cout<<"Forward kinamtics for joints: "<<pinocchio_model.njoints<<std::endl;
-  Eigen::Vector3d x = pinocchio_data.oMf[ee_frame_id].translation();
+  Eigen::Vector3d xl = pinocchio_data.oMf[ee_frame_id].translation();
   // std::cout << std::fixed << std::setprecision(2)
   //             << pinocchio_data.oMf[ee_frame_id].translation().transpose()
   //             << std::endl;
 
-  Eigen::Vector3d x_d(3);
-  x_d<<0.08, 0.14, -0.07;
+  Eigen::Vector3d xl_d(3);
+  xl_d<<0.08, 0.14, -0.07;
 
   double t = (time - time_activate).seconds();
   double seconds_per_target = 4.0;
@@ -384,17 +398,17 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
     w_1 = 1.0-ratio_elapsed;
   }
 
-  Eigen::Matrix3d X;
-  X << 0, 0, 0.2,
+  Eigen::Matrix3d Xl;
+  Xl << 0, 0, 0.2,
        0, 0, 0.00,
        0, 0.05, 0;
 
   //x_d = x_d+X.row(i_target).transpose();
-  x_d = x_d+(X.row(0)*w_0 + X.row(1)*w_1).transpose();
+  xl_d = xl_d+(Xl.row(0)*w_0 + Xl.row(1)*w_1).transpose();
 
-  Eigen::VectorXd ddx_d(6);
-  ddx_d << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
-  ddx_d.head<3>() = x_d - x;
+  Eigen::VectorXd ddxl_d(6);
+  ddxl_d << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0;
+  ddxl_d.head<3>() = xl_d - xl;
 
   // Eigen::Vector3d ddx_d(3);
   // ddx_d = 10.0*(x_d - x);
@@ -408,47 +422,52 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
           ssj.str().c_str());
   // Eigen::Vector3d ddq_d = J_inv*ddx_d;
 
-  Eigen::Matrix3d M = pinocchio::crba(pinocchio_model, pinocchio_data, q);
-  M.triangularView<Eigen::StrictlyLower>() = M.transpose().triangularView<Eigen::StrictlyLower>();
+  // Eigen::MatrixXd M = pinocchio::crba(pinocchio_model, pinocchio_data, q);
+  // M.triangularView<Eigen::StrictlyLower>() = M.transpose().triangularView<Eigen::StrictlyLower>();
 
-      ssj << "M: " << std::endl << M << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      // ssj << "M: " << std::endl << M << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
-      ssj << "M_inv: " << std::endl << M.inverse() << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      // ssj << "M_inv: " << std::endl << M.inverse() << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
-      ssj << "M_inv sandwich: " << std::endl << J*M.inverse()*J.transpose() << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      // ssj << "M_inv sandwich: " << std::endl << J*M.inverse()*J.transpose() << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
-  Eigen::MatrixXd M_x = (J*M.inverse()*J.transpose()).inverse(); //operational space mass matrix
+  // Eigen::MatrixXd M_x = (J*M.inverse()*J.transpose()).inverse(); //operational space mass matrix
 
-      ssj << "M_x: " << std::endl << M_x << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      // ssj << "M_x: " << std::endl << M_x << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
-  Eigen::VectorXd f_d = ddx_d;//M_x*ddx_d;
+  Eigen::VectorXd f_d = ddxl_d;//M_x*ddx_d;
 
       ssj << "f_d: " << std::endl << f_d << std::endl << std::endl;
       RCLCPP_INFO_THROTTLE(
               get_node()->get_logger(), *get_node()->get_clock(), 1000,
               ssj.str().c_str());
 
-  Eigen::Vector3d tau_task = (J.transpose()*f_d);//M*ddq_d;
+  Eigen::VectorXd tau_task = (J.transpose()*f_d);//M*ddq_d;
 
         ssj << "tau_task: " << std::endl << tau_task << std::endl << std::endl;
       RCLCPP_INFO_THROTTLE(
               get_node()->get_logger(), *get_node()->get_clock(), 1000,
               ssj.str().c_str());
 
-  Eigen::Vector3d tau = kp.array() * tau_task.array() - kd.array() * dq.array();
+  Eigen::VectorXd tau = kp.array() * tau_task.array() - kd.array() * dq.array();
   //tau << 0.0, 0.0, 0.0;
+
+            ssj << "tau: " << std::endl << tau << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
 
   //Eigen::VectorXd tau = 0.1*-q;
 //  use jacobian to compute force into a specific direction, e.g. up
@@ -472,21 +491,35 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   
   //tau = M*tau;
 
-  std::stringstream ssm;
-  ssm << "Mass matrix: " << std::endl << M << std::endl << std::endl;
-  RCLCPP_INFO_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          ssm.str().c_str());
+  // std::stringstream ssm;
+  // ssm << "Mass matrix: " << std::endl << M << std::endl << std::endl;
+  // RCLCPP_INFO_THROTTLE(
+  //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+  //         ssm.str().c_str());
   
 
   // gravity compensation
   //Eigen::VectorXd q = Eigen::VectorXd::Zero(model.nq);  // Joint positions (set to zero or desired configuration)
-  Eigen::Vector3d v = dq;//Eigen::VectorXd::Zero(pinocchio_model.nv);  // Joint velocities (zero for static case)  
-  Eigen::Vector3d a = Eigen::VectorXd::Zero(pinocchio_model.nv); //ddq_d;// // Joint accelerations (zero for static case)
+  Eigen::VectorXd v = dq;//Eigen::VectorXd::Zero(pinocchio_model.nv);  // Joint velocities (zero for static case)  
+  Eigen::VectorXd a = Eigen::VectorXd::Zero(pinocchio_model.nv); //ddq_d;// // Joint accelerations (zero for static case)
 
-  Eigen::Vector3d tau_dynamics = pinocchio::rnea(pinocchio_model, pinocchio_data, q, v, a);
+  Eigen::VectorXd tau_dynamics = pinocchio::rnea(pinocchio_model, pinocchio_data, q, v, a);
+
+
+            ssj << "tau_dynamics: " << std::endl << tau_dynamics << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
   tau = tau + tau_dynamics;
-  // std::cout << "Gravity compensation torques: " << gravity_torques.transpose() << std::endl;
+
+
+
+              ssj << "tau total: " << std::endl << tau << std::endl << std::endl;
+      RCLCPP_INFO_THROTTLE(
+              get_node()->get_logger(), *get_node()->get_clock(), 1000,
+              ssj.str().c_str());
+
 
   //tau = 2.0/3.0 * (tau.array() +  gravity_torques.array());
   tau = 2.0/3.0 * tau.array();
@@ -495,10 +528,31 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   // instead of a loop
   for (size_t i = 0; i < command_interfaces_.size(); ++i)
   {
+    // std::cout<<" ------------------------------------- "<<std::endl;
     // if (!std::isnan((*current_ref)->displacements[i]))
     // {
+    // std::cout<<i<<" in "<<command_interfaces_.size() <<std::endl;
+    std::string name_cmd_interface = command_interfaces_[i].get_name();
+    // std::cout<<"name_cmd_interface:\t"<<name_cmd_interface<<std::endl;
 
-      bool is_set_successfully = command_interfaces_[i].set_value(tau(i));
+    size_t pos = name_cmd_interface.find('/'); // Find the position of '/'
+    // std::cout<<"pos "<<pos<<std::endl;
+    std::string joint_name = (pos != std::string::npos) ? name_cmd_interface.substr(0, pos) : name_cmd_interface;
+
+    // std::cout<<"joint_name:\t"<<joint_name<<std::endl;
+
+    long unsigned int id = map_pinocchio_jointidx_lookup[joint_name];
+    // std::cout<<"id:\t"<<id<<std::endl;
+    // std::cout
+    //          <<"tau(id):\t"<<tau(id)<<"\n"
+    //          <<"command_interfaces_[i].get_name():\t"<<command_interfaces_[i].get_name()<<std::endl;
+
+     double tau_this_joint = tau(id);
+      // std::cout<<"setting cmd interface "<<name_cmd_interface<< " / " <<joint_name <<" to "<<tau_this_joint<<std::endl;
+
+      bool is_set_successfully = command_interfaces_[i].set_value(tau_this_joint);
+
+      // std::cout<<"actually set it before this, and result was: "<<std::to_string(is_set_successfully)<<std::endl;
       if (!is_set_successfully){
           RCLCPP_WARN_THROTTLE(
           get_node()->get_logger(), *get_node()->get_clock(), 1000,
@@ -506,9 +560,10 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
       } else {
         RCLCPP_INFO_THROTTLE(
           get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          (std::string("Successfully set new torque:")+std::to_string(tau(0))+std::string(" ")+std::to_string(tau(1))+std::string(" ")+std::to_string(tau(2))+std::string("\n")).c_str());
+          (std::string("Successfully set new torque:")+std::to_string(tau_this_joint)+std::string("\n")).c_str());
           
       }
+      // std::cout<<"after ifelse"<<std::endl;
       //(*current_ref)->displacements[i] = std::numeric_limits<double>::quiet_NaN();
     // }
   }
