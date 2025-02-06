@@ -50,7 +50,7 @@ padman_controller:
   }
   kp: {
     type: double_array,
-    default_value: [100.0, 100.0, 40.5], #[100.0, 100.0, 1.5],
+    default_value: [50.0, 50.0, 20.5], #[100.0, 100.0, 1.5],
     description: "joint-space position gain"
   }
   kd: {

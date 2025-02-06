@@ -385,10 +385,10 @@ controller_interface::return_type PadmanController::update(
   //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
   //         ssj.str().c_str());
 
-ssj << "kp: " << std::endl << kp << std::endl << std::endl;
-    RCLCPP_INFO_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          ssj.str().c_str());
+// ssj << "kp: " << std::endl << kp << std::endl << std::endl;
+//     RCLCPP_INFO_THROTTLE(
+//           get_node()->get_logger(), *get_node()->get_clock(), 1000,
+//           ssj.str().c_str());
   //J = J.topRows(3).eval();
   // std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
 
@@ -478,16 +478,16 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   // //Eigen::VectorXd tau = ee_jacobian.transpose()*f;
   // Eigen::Matrix3d J_inv = J.topRows(3).inverse();
   
-  ssj << "Jl: " << std::endl << Jl << std::endl << std::endl;
-  RCLCPP_INFO_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          ssj.str().c_str());
+  // ssj << "Jl: " << std::endl << Jl << std::endl << std::endl;
+  // RCLCPP_INFO_THROTTLE(
+  //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+  //         ssj.str().c_str());
 
 
-  ssj << "Jr: " << std::endl << Jr << std::endl << std::endl;
-  RCLCPP_INFO_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          ssj.str().c_str());
+  // ssj << "Jr: " << std::endl << Jr << std::endl << std::endl;
+  // RCLCPP_INFO_THROTTLE(
+  //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+  //         ssj.str().c_str());
   // Eigen::Vector3d ddq_d = J_inv*ddx_d;
 
   // Eigen::MatrixXd M = pinocchio::crba(pinocchio_model, pinocchio_data, q);
@@ -518,37 +518,37 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   Eigen::VectorXd fl_d = ddxl_d;//M_x*ddx_d;
   Eigen::VectorXd fr_d = ddxr_d;//M_x*ddx_d;
 
-      ssj << "fl_d: " << std::endl << fl_d << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      // ssj << "fl_d: " << std::endl << fl_d << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
-  ssj << "fr_d: " << std::endl << fr_d << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+  // ssj << "fr_d: " << std::endl << fr_d << std::endl << std::endl;
+  //     RCLCPP_INFO_THROTTLE(
+  //             get_node()->get_logger(), *get_node()->get_clock(), 1000,
+  //             ssj.str().c_str());
 
   Eigen::VectorXd tau_task_l = (Jl.transpose()*fl_d);//M*ddq_d;
   Eigen::VectorXd tau_task_r = (Jr.transpose()*fr_d);//M*ddq_d;
 
-        ssj << "tau_task_l: " << std::endl << tau_task_l << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      //   ssj << "tau_task_l: " << std::endl << tau_task_l << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
 
-        ssj << "tau_task_r: " << std::endl << tau_task_r << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      //   ssj << "tau_task_r: " << std::endl << tau_task_r << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
   Eigen::VectorXd tau = kp.array() * (tau_task_r.array() + tau_task_l.array()) - kd.array() * dq.array(); //
   //tau << 0.0, 0.0, 0.0;
 
-            ssj << "tau: " << std::endl << tau << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      //       ssj << "tau: " << std::endl << tau << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
   //Eigen::VectorXd tau = 0.1*-q;
 //  use jacobian to compute force into a specific direction, e.g. up
@@ -587,19 +587,19 @@ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
   Eigen::VectorXd tau_dynamics = pinocchio::rnea(pinocchio_model, pinocchio_data, q, v, a);
 
 
-            ssj << "tau_dynamics: " << std::endl << tau_dynamics << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      //       ssj << "tau_dynamics: " << std::endl << tau_dynamics << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
   tau = tau + tau_dynamics;
 
 
 
-              ssj << "tau total: " << std::endl << tau << std::endl << std::endl;
-      RCLCPP_INFO_THROTTLE(
-              get_node()->get_logger(), *get_node()->get_clock(), 1000,
-              ssj.str().c_str());
+      //         ssj << "tau total: " << std::endl << tau << std::endl << std::endl;
+      // RCLCPP_INFO_THROTTLE(
+      //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
+      //         ssj.str().c_str());
 
 
   //tau = 2.0/3.0 * (tau.array() +  gravity_torques.array());
