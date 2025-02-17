@@ -25,8 +25,8 @@
 #include <vector>
 
 #include "controller_interface/controller_interface.hpp"
-#include "padman_controller_parameters.hpp"
-#include "padman_controller/visibility_control.h"
+#include  <padman_controller/padman_controller_parameters.hpp>
+#include <padman_controller/visibility_control.h>
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 #include "rclcpp_lifecycle/state.hpp"
 #include "realtime_tools/realtime_buffer.hpp"
@@ -140,6 +140,8 @@ std::map<std::string, long unsigned int> map_pinocchio_jointidx_lookup;
   int counter_ = 0;
 
 rclcpp::Time time_activate;
+
+Eigen::VectorXd tau_jerk_limited;
 };
 
 }  // namespace padman_controller
