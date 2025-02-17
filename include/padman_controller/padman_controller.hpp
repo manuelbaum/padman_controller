@@ -48,6 +48,8 @@
 #include "pinocchio/parsers/urdf.hpp"
 #include "pinocchio/parsers/srdf.hpp"
 
+#include "padman_controller/realtimemonitor.hpp"
+
 namespace padman_controller
 {
 // name constants for state interfaces
@@ -133,6 +135,9 @@ std::map<std::string, long unsigned int> map_pinocchio_jointidx_lookup;
 
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_{nullptr};
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+
+  std::shared_ptr<RealtimeMonitor> monitor_;
+  int counter_ = 0;
 
 rclcpp::Time time_activate;
 };

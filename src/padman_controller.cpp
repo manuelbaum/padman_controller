@@ -32,6 +32,7 @@
 #include "controller_interface/helpers.hpp"
 #include <pinocchio/algorithm/rnea.hpp>
 #include <pinocchio/algorithm/crba.hpp>
+
 // #include <pinocchio/algorithm/joint-configuration.hpp>
 // #include <pinocchio/algorithm/kinematics.hpp>
 
@@ -85,6 +86,9 @@ controller_interface::CallbackReturn PadmanController::on_init()
     fprintf(stderr, "Exception thrown during controller's init with message: %s \n", e.what());
     return controller_interface::CallbackReturn::ERROR;
   }
+
+  monitor_ = std::shared_ptr<RealtimeMonitor>(new RealtimeMonitor(1000.0));
+
   RCLCPP_INFO(get_node()->get_logger(), "on_init: done");
   return controller_interface::CallbackReturn::SUCCESS;
 }
@@ -300,6 +304,11 @@ controller_interface::return_type PadmanController::update(
   params_ = param_listener_->get_params();
 }
 
+monitor_->update();
+if (++counter_ % 1000 == 0) {  // Print stats every 100 iterations
+    monitor_->print_stats();
+}
+
     for (pinocchio::Model::JointIndex i = 1; i < pinocchio_model.joints.size(); ++i) {
         // std::cout << i << ": " << pinocchio_model.names[i] << std::endl;
         map_pinocchio_jointidx_lookup[pinocchio_model.names[i]]=i-1;
@@ -322,9 +331,16 @@ controller_interface::return_type PadmanController::update(
     std::string tf_target_link_l = std::string("ee_target_l");
     std::string tf_target_link_r = std::string("ee_target_r");
     std::string tf_base_link = std::string("base_link");
+
+    geometry_msgs::msg::TransformStamped tf_target_l;
+    geometry_msgs::msg::TransformStamped tf_target_r;
+
     bool is_use_target_default=true;
-        geometry_msgs::msg::TransformStamped tf_target_l;
-        geometry_msgs::msg::TransformStamped tf_target_r;
+
+    bool is_use_tf = false;
+
+    if(is_use_tf){
+
         // Look up for the transformation between target_frame and turtle2 frames
         // and send velocity commands for turtle2 to reach target_frame
         try {
@@ -342,7 +358,7 @@ controller_interface::return_type PadmanController::update(
             get_node()->get_logger(), "Could not transform %s to %s: %s",
             tf_base_link.c_str(), tf_target_link_l.c_str(), ex.what());
         }
-
+      }
 
   // kp = Eigen::VectorXd(3);
   // //kp <<params_.gains.joint1.p, params_.gains.joint2.p, params_.gains.joint3.p;
@@ -398,10 +414,10 @@ controller_interface::return_type PadmanController::update(
   //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
   //         ssj.str().c_str());
 
- ssj << "kp: " << std::endl << kp << std::endl << std::endl;
-     RCLCPP_INFO_THROTTLE(
-           get_node()->get_logger(), *get_node()->get_clock(), 1000,
-           ssj.str().c_str());
+//  ssj << "kp: " << std::endl << kp << std::endl << std::endl;
+//      RCLCPP_INFO_THROTTLE(
+//            get_node()->get_logger(), *get_node()->get_clock(), 1000,
+//            ssj.str().c_str());
   //J = J.topRows(3).eval();
   // std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
 
@@ -469,7 +485,7 @@ controller_interface::return_type PadmanController::update(
   xl_d = xl_d+(Xl.row(0)*w_0 + Xl.row(1)*w_1).transpose();
   xr_d = xr_d+(Xr.row(0)*w_0 + Xr.row(1)*w_1).transpose();
 
-  if(!is_use_target_default){
+  if(is_use_tf && !is_use_target_default){
     xl_d << tf_target_l.transform.translation.x, tf_target_l.transform.translation.y, tf_target_l.transform.translation.z;
     xr_d << tf_target_r.transform.translation.x, tf_target_r.transform.translation.y, tf_target_r.transform.translation.z;
   }
@@ -652,9 +668,9 @@ controller_interface::return_type PadmanController::update(
           get_node()->get_logger(), *get_node()->get_clock(), 1000,
           "Failed to set_value in controller");
       } else {
-        RCLCPP_INFO_THROTTLE(
-          get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          (std::string("Successfully set new torque:")+std::to_string(tau_this_joint)+std::string("\n")).c_str());
+        // RCLCPP_INFO_THROTTLE(
+        //   get_node()->get_logger(), *get_node()->get_clock(), 1000,
+        //   (std::string("Successfully set new torque:")+std::to_string(tau_this_joint)+std::string("\n")).c_str());
           
       }
       // std::cout<<"after ifelse"<<std::endl;
