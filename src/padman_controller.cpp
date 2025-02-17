@@ -73,8 +73,9 @@ PadmanController::PadmanController() : controller_interface::ControllerInterface
 
 controller_interface::CallbackReturn PadmanController::on_init()
 {
+  RCLCPP_INFO(get_node()->get_logger(), "on_init: initRT");
   control_mode_.initRT(control_mode_type::FAST);
-
+  RCLCPP_INFO(get_node()->get_logger(), "on_init: param listener");
   try
   {
     param_listener_ = std::make_shared<padman_controller::ParamListener>(get_node());
@@ -84,13 +85,14 @@ controller_interface::CallbackReturn PadmanController::on_init()
     fprintf(stderr, "Exception thrown during controller's init with message: %s \n", e.what());
     return controller_interface::CallbackReturn::ERROR;
   }
-
+  RCLCPP_INFO(get_node()->get_logger(), "on_init: done");
   return controller_interface::CallbackReturn::SUCCESS;
 }
 
 controller_interface::CallbackReturn PadmanController::on_configure(
   const rclcpp_lifecycle::State & /*previous_state*/)
 {
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: Getting params");
   params_ = param_listener_->get_params();
 
   if (!params_.state_joints.empty())
@@ -111,20 +113,24 @@ controller_interface::CallbackReturn PadmanController::on_configure(
     return CallbackReturn::FAILURE;
   }
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: qos");
   // topics QoS
   auto subscribers_qos = rclcpp::SystemDefaultsQoS();
   subscribers_qos.keep_last(1);
   subscribers_qos.best_effort();
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: reference subscriber");
   // Reference Subscriber
   ref_subscriber_ = get_node()->create_subscription<ControllerReferenceMsg>(
     "~/reference", subscribers_qos,
     std::bind(&PadmanController::reference_callback, this, std::placeholders::_1));
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: make reference msg");
   std::shared_ptr<ControllerReferenceMsg> msg = std::make_shared<ControllerReferenceMsg>();
   reset_controller_reference_msg(msg, params_.joints);
   input_ref_.writeFromNonRT(msg);
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: set slow mode callback");
   auto set_slow_mode_service_callback =
     [&](
       const std::shared_ptr<ControllerModeSrvType::Request> request,
@@ -145,6 +151,8 @@ controller_interface::CallbackReturn PadmanController::on_configure(
     "~/set_slow_control_mode", set_slow_mode_service_callback,
     rmw_qos_profile_services_hist_keep_all);
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: create state publisher");
+  rclcpp::sleep_for(std::chrono::seconds(3));
   try
   {
     // State publisher
@@ -160,6 +168,7 @@ controller_interface::CallbackReturn PadmanController::on_configure(
     return controller_interface::CallbackReturn::ERROR;
   }
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: lock state publisher");
   // TODO(anyone): Reserve memory in state publisher depending on the message type
   state_publisher_->lock();
   state_publisher_->msg_.header.frame_id = params_.joints[0];
@@ -169,7 +178,7 @@ controller_interface::CallbackReturn PadmanController::on_configure(
   //params_.joint1.p
 
 
-
+RCLCPP_INFO(get_node()->get_logger(), "on_configure: make tf listener");
     tf_buffer_ =
       std::make_unique<tf2_ros::Buffer>(get_node()->get_clock());
     tf_listener_ =
@@ -177,11 +186,13 @@ controller_interface::CallbackReturn PadmanController::on_configure(
 
   //get_node()->declare_parameter("kp", std::vector<double>{10.0, 10.0, 2.5});
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: urdf path");
   // Setup kinematics with pinocchio
   const auto package_share_path = ament_index_cpp::get_package_share_directory("padman_hw");
   const auto urdf_path = std::filesystem::path(package_share_path) /"urdf"/ "padman.urdf";
   //const auto srdf_path = std::filesystem::path(package_share_path) / "ur_robot_model" / "ur5_gripper.srdf";
 
+  RCLCPP_INFO(get_node()->get_logger(), "on_configure: pinocchio");
   // Create a set of Pinocchio models and data.
   pinocchio::urdf::buildModel(urdf_path, pinocchio_model);
 
@@ -299,12 +310,14 @@ controller_interface::return_type PadmanController::update(
   kp<<kp_std[0], kp_std[1], kp_std[2], 
       kp_std[0], kp_std[1], kp_std[2];
 
+//  kp<<20., 20., 5., 20., 20., 5.;
+
   const std::vector< double > kd_std = params_.kd;//.as_double_array();
   Eigen::VectorXd kd(6);
     kd<<kd_std[0], kd_std[1], kd_std[2], 
         kd_std[0], kd_std[1], kd_std[2];
 
-
+//  kd<<0.05, 0.05, 0.002, 0.05, 0.05, 0.002;
 
     std::string tf_target_link_l = std::string("ee_target_l");
     std::string tf_target_link_r = std::string("ee_target_r");
@@ -385,10 +398,10 @@ controller_interface::return_type PadmanController::update(
   //         get_node()->get_logger(), *get_node()->get_clock(), 1000,
   //         ssj.str().c_str());
 
-// ssj << "kp: " << std::endl << kp << std::endl << std::endl;
-//     RCLCPP_INFO_THROTTLE(
-//           get_node()->get_logger(), *get_node()->get_clock(), 1000,
-//           ssj.str().c_str());
+ ssj << "kp: " << std::endl << kp << std::endl << std::endl;
+     RCLCPP_INFO_THROTTLE(
+           get_node()->get_logger(), *get_node()->get_clock(), 1000,
+           ssj.str().c_str());
   //J = J.topRows(3).eval();
   // std::cout << "Frame Jacobian: " << std::endl << ee_jacobian << std::endl << std::endl;
 
@@ -461,7 +474,7 @@ controller_interface::return_type PadmanController::update(
     xr_d << tf_target_r.transform.translation.x, tf_target_r.transform.translation.y, tf_target_r.transform.translation.z;
   }
 
-  std::cout<<"target: "<<is_use_target_default<<" "<<xl_d<<std::endl;
+//  std::cout<<"target: "<<is_use_target_default<<" "<<xl_d<<std::endl;
 
   // pretend the offset is an acceleration
   Eigen::VectorXd ddxl_d(6);

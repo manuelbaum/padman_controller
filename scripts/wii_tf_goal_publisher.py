@@ -19,12 +19,12 @@ from serial import SerialException
 
 class FramePublisher(Node):
 
-    def __init__(self):
+    def __init__(self, is_r_relative_to_l = True):
         super().__init__('padman_wii_tf_goal_publisher')
 
         print("Init")
         ser_0 = serial.Serial('/dev/ttyUSB0', 115200, timeout = 0.01)
-        ser_1 = serial.Serial('/dev/ttyUSB2', 115200, timeout = 0.01)
+        ser_1 = serial.Serial('/dev/ttyUSB1', 115200, timeout = 0.01)
 
 
         # # Declare and acquire `turtlename` parameter
@@ -43,12 +43,16 @@ class FramePublisher(Node):
         #     1)
         # self.subscription  # prevent unused variable warning
 
+        self.is_r_relative_to_l = is_r_relative_to_l
+
         self.scale = np.array([0.1, 0.1, 0.1]) #np.array([0.05, 0.05, 0.05])
 
         self.target_origin_l = np.array([0.06, 0.22, -0.03])
+        self.target_l = np.copy(self.target_origin_l)
         self.target_frame_l = "base_link"
         
         self.target_origin_r = np.array([0.10, 0.22, -0.03])
+        self.target_r = np.copy(self.target_origin_r)
         self.target_frame_r = "base_link"
 
         self.t_last_update_r = self.get_clock().now()
@@ -112,14 +116,19 @@ class FramePublisher(Node):
             raise Exception("Side needs to be l or r. Is: "+side)
 
 
-        delta = np.array([x, y, z]) * self.scale
+        delta = np.array([x, y, z]) * self.scale # relative to origin
 
         if side == "r":
-            target = self.target_origin_r + delta
-            parent = self.target_frame_r
+            if self.is_r_relative_to_l:
+                target = self.target_l + delta + np.array([0.05, 0.0, 0.0])# relative to left target
+                parent = self.target_frame_r
+            else:
+                target = self.target_origin_r + delta # relative to origin target for this side
+                parent = self.target_frame_r
             frame_id = "ee_target_r"
         elif side == "l":
             target = self.target_origin_l + delta
+            self.target_l = target
             parent = self.target_frame_l
             frame_id = "ee_target_l"
         else:
